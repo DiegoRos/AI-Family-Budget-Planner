@@ -1,16 +1,3 @@
-export const EXPENSE_CATEGORIES = [
-  "Rent", "Utilities", "Groceries", "Transportation", "Health/Medical",
-  "Mobile/Wifi", "Laundry/Dry Cleaners", "Subscriptions", "Entertainment",
-  "Miscellaneous", "Personal Ana", "Personal Diego", "Travel", "Other"
-];
-
-export const INCOME_CATEGORIES = [
-  "Paycheck Ana", "Paycheck Diego", "Passive Income",
-  "Bonus Ana", "Bonus Diego", "Other"
-];
-
-export const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
-
 export const PERSONS = ["Ana", "Diego", "Ana/Diego"];
 
 export const CATEGORY_COLORS = {
@@ -23,6 +10,7 @@ export const CATEGORY_COLORS = {
   "Laundry/Dry Cleaners": "#B19CD9",
   "Subscriptions": "#F08080",
   "Entertainment": "#87CEEB",
+  "House Cleaning": "#90EE90",
   "Miscellaneous": "#D3D3D3",
   "Personal Ana": "#FFB6C1",
   "Personal Diego": "#87CEFA",

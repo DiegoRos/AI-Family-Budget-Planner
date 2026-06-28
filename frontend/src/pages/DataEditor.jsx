@@ -16,14 +16,15 @@ import {
   ChevronUp,
   ChevronDown
 } from 'lucide-react';
-import { 
-  ALL_CATEGORIES, 
-  EXPENSE_CATEGORIES, 
-  INCOME_CATEGORIES, 
-  PERSONS 
-} from '../api/constants';
+import { PERSONS } from '../api/constants';
+import { useConfig } from '../api/useConfig';
 
 export default function DataEditor() {
+  const { data: config } = useConfig();
+  const EXPENSE_CATEGORIES = config?.expense_categories ?? [];
+  const INCOME_CATEGORIES = config?.income_categories ?? [];
+  const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
+
   const [selectedMonthId, setSelectedMonthId] = useState(null);
   const [activeTab, setActiveTab] = useState('transactions'); // 'transactions' or 'budget'
   const [editingId, setEditingId] = useState(null);

@@ -3,7 +3,8 @@ import { useDropzone } from 'react-dropzone';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Upload, Loader2, Save, X, Trash2, CheckCircle2, AlertCircle, Plus } from 'lucide-react';
 import client from '../api/client';
-import { ALL_CATEGORIES, EXPENSE_CATEGORIES, INCOME_CATEGORIES, PERSONS } from '../api/constants';
+import { PERSONS } from '../api/constants';
+import { useConfig } from '../api/useConfig';
 
 // Collision-proof local id (parallel results can resolve in the same ms).
 const newLocalId = () =>
@@ -12,6 +13,11 @@ const newLocalId = () =>
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 export default function UploadPage() {
+  const { data: config } = useConfig();
+  const EXPENSE_CATEGORIES = config?.expense_categories ?? [];
+  const INCOME_CATEGORIES = config?.income_categories ?? [];
+  const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
+
   const [extractedTransactions, setExtractedTransactions] = useState([]);
   // Per-file progress: { id, name, status: 'queued'|'extracting'|'done'|'error', note, count, error }
   const [fileStatuses, setFileStatuses] = useState([]);

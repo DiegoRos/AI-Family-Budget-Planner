@@ -1,23 +1,42 @@
+import os
+import json
 from sqlalchemy.orm import Session
-from database.db import SessionLocal, engine
+from database.db import SessionLocal
 from database import models
 from datetime import datetime
 
-EXPENSE_CATEGORIES = [
-    "Rent", "Utilities", "Groceries", "Transportation", "Health/Medical",
-    "Mobile/Wifi", "Laundry/Dry Cleaners", "Subscriptions", "Entertainment",
-    "Miscellaneous", "Personal Ana", "Personal Diego", "Travel", "Other"
-]
 
-INCOME_CATEGORIES = [
-    "Paycheck Ana", "Paycheck Diego", "Passive Income",
-    "Bonus Ana", "Bonus Diego", "Other"
-]
+def _load_base_budget():
+    raw = os.getenv("BUDGET_CONFIG", "{}")
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+
+def seed_budgets_for_month(month_id: int, db: Session):
+    existing_count = db.query(models.Budget).filter(
+        models.Budget.month_id == month_id
+    ).count()
+    if existing_count > 0:
+        return
+
+    base_budget = _load_base_budget()
+    for budget_type, categories in base_budget.items():
+        for category, amount in categories.items():
+            db.add(models.Budget(
+                month_id=month_id,
+                category=category,
+                type=budget_type,
+                planned_amount=amount,
+            ))
+
+    db.commit()
+
 
 def seed_data():
     db = SessionLocal()
     try:
-        # Create a default month if none exists (Current Month)
         now = datetime.now()
         db_month = db.query(models.Month).filter(
             models.Month.year == now.year,
@@ -37,40 +56,12 @@ def seed_data():
             db.refresh(db_month)
             print(f"Created month {now.month}/{now.year}")
 
-        # Seed Budgets for this month if they don't exist
-        for cat in EXPENSE_CATEGORIES:
-            existing = db.query(models.Budget).filter(
-                models.Budget.month_id == db_month.id,
-                models.Budget.category == cat,
-                models.Budget.type == "expense"
-            ).first()
-            if not existing:
-                db.add(models.Budget(
-                    month_id=db_month.id,
-                    category=cat,
-                    type="expense",
-                    planned_amount=0.0
-                ))
-
-        for cat in INCOME_CATEGORIES:
-            existing = db.query(models.Budget).filter(
-                models.Budget.month_id == db_month.id,
-                models.Budget.category == cat,
-                models.Budget.type == "income"
-            ).first()
-            if not existing:
-                db.add(models.Budget(
-                    month_id=db_month.id,
-                    category=cat,
-                    type="income",
-                    planned_amount=0.0
-                ))
-
-        db.commit()
+        seed_budgets_for_month(db_month.id, db)
         print("Successfully seeded categories and initial month.")
 
     finally:
         db.close()
+
 
 if __name__ == "__main__":
     seed_data()

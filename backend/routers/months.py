@@ -4,6 +4,7 @@ from typing import List
 from database.db import get_db
 from database import models
 from schemas import schemas
+from database.seed import seed_budgets_for_month
 
 router = APIRouter(prefix="/months", tags=["months"])
 
@@ -20,6 +21,7 @@ def create_month(month: schemas.MonthCreate, db: Session = Depends(get_db)):
     db.add(new_month)
     db.commit()
     db.refresh(new_month)
+    seed_budgets_for_month(new_month.id, db)
     return new_month
 
 @router.get("/", response_model=List[schemas.Month])

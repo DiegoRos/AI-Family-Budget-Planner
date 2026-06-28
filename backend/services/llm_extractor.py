@@ -5,15 +5,22 @@ from langchain_community.llms import Ollama
 from typing import List, Dict, Any
 import os
 
-EXPENSE_CATEGORIES = [
-    "Rent", "Utilities", "Groceries", "Transportation", "Health/Medical",
-    "Mobile/Wifi", "Laundry/Dry Cleaners", "Subscriptions", "Entertainment",
-    "Miscellaneous", "Personal Ana", "Personal Diego", "Travel", "Other"
-]
-INCOME_CATEGORIES = [
-    "Paycheck Ana", "Paycheck Diego", "Passive Income",
-    "Bonus Ana", "Bonus Diego", "Other"
-]
+
+def _load_categories():
+    raw = os.getenv("BUDGET_CONFIG", "{}")
+    try:
+        config = json.loads(raw)
+    except json.JSONDecodeError:
+        config = {}
+    expense = list(config.get("expense", {}).keys())
+    income = list(config.get("income", {}).keys())
+    return (
+        expense or ["Miscellaneous", "Other"],
+        income or ["Other"],
+    )
+
+
+EXPENSE_CATEGORIES, INCOME_CATEGORIES = _load_categories()
 ALL_CATEGORIES = EXPENSE_CATEGORIES + INCOME_CATEGORIES
 PERSONS = ["Ana", "Diego", "Ana/Diego"]
 

@@ -4,7 +4,7 @@ import os
 from database.db import engine
 from database.models import Base
 
-from routers import transactions, months, extract, budgets, export
+from routers import transactions, months, extract, budgets, export, config
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -16,6 +16,7 @@ app.include_router(months.router, prefix="/api")
 app.include_router(extract.router, prefix="/api")
 app.include_router(budgets.router, prefix="/api")
 app.include_router(export.router, prefix="/api")
+app.include_router(config.router, prefix="/api")
 
 # Configure CORS
 origins = [

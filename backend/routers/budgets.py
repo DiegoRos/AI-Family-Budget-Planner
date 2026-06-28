@@ -44,9 +44,19 @@ def delete_budget(budget_id: int, db: Session = Depends(get_db)):
     db_budget = db.query(models.Budget).filter(models.Budget.id == budget_id).first()
     if not db_budget:
         raise HTTPException(status_code=404, detail="Budget not found")
-    
+
     check_month_not_frozen(db_budget.month_id, db)
-    
+
     db.delete(db_budget)
     db.commit()
     return {"message": "Budget deleted successfully"}
+
+@router.post("/seed/{month_id}", response_model=List[schemas.Budget])
+def seed_month_budgets(month_id: int, db: Session = Depends(get_db)):
+    check_month_not_frozen(month_id, db)
+    month = db.query(models.Month).filter(models.Month.id == month_id).first()
+    if not month:
+        raise HTTPException(status_code=404, detail="Month not found")
+    from database.seed import seed_budgets_for_month
+    seed_budgets_for_month(month_id, db)
+    return db.query(models.Budget).filter(models.Budget.month_id == month_id).all()
