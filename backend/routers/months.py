@@ -1,0 +1,45 @@
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.orm import Session
+from typing import List
+from database.db import get_db
+from database import models
+from schemas import schemas
+
+router = APIRouter(prefix="/months", tags=["months"])
+
+@router.post("/", response_model=schemas.Month)
+def create_month(month: schemas.MonthCreate, db: Session = Depends(get_db)):
+    db_month = db.query(models.Month).filter(
+        models.Month.year == month.year, 
+        models.Month.month == month.month
+    ).first()
+    if db_month:
+        raise HTTPException(status_code=400, detail="Month already exists")
+    
+    new_month = models.Month(**month.dict())
+    db.add(new_month)
+    db.commit()
+    db.refresh(new_month)
+    return new_month
+
+@router.get("/", response_model=List[schemas.Month])
+def read_months(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
+    return db.query(models.Month).offset(skip).limit(limit).all()
+
+@router.get("/{month_id}", response_model=schemas.Month)
+def read_month(month_id: int, db: Session = Depends(get_db)):
+    db_month = db.query(models.Month).filter(models.Month.id == month_id).first()
+    if db_month is None:
+        raise HTTPException(status_code=404, detail="Month not found")
+    return db_month
+
+@router.patch("/{month_id}/freeze", response_model=schemas.Month)
+def toggle_freeze(month_id: int, freeze: bool, db: Session = Depends(get_db)):
+    db_month = db.query(models.Month).filter(models.Month.id == month_id).first()
+    if db_month is None:
+        raise HTTPException(status_code=404, detail="Month not found")
+    
+    db_month.is_frozen = freeze
+    db.commit()
+    db.refresh(db_month)
+    return db_month

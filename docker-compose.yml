@@ -1,0 +1,41 @@
+services:
+  backend:
+    build: ./backend
+    volumes:
+      - ./backend:/app
+      - budget_data:/app/data
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=sqlite:///./data/budget.db
+      - OLLAMA_HOST=http://ollama:11434
+    depends_on:
+      - ollama
+
+  frontend:
+    build: ./frontend
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://localhost:8000
+
+  ollama:
+    build: ./ollama
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  budget_data:
+  ollama_data:

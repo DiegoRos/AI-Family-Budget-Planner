@@ -1,0 +1,15 @@
+fastapi
+uvicorn
+sqlalchemy
+pydantic
+pydantic-settings
+python-multipart
+pandas
+openpyxl
+langchain
+langchain-community
+requests
+python-dotenv
+pymupdf
+pytesseract
+Pillow
