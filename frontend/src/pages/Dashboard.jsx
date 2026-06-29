@@ -15,8 +15,8 @@ import { CATEGORY_COLORS } from '../api/constants';
 
 const COLORS = ['#334960', '#4a6b8c', '#628db8', '#7bb0e4', '#93d2ff', '#aadaff'];
 
-// Render slice percentage with a dark paint-order outline so light text
-// stays readable on light slices.
+const NAVY_STROKE = '-1px -1px 0 #1a1a2e, 1px -1px 0 #1a1a2e, -1px 1px 0 #1a1a2e, 1px 1px 0 #1a1a2e';
+
 const renderSliceLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
   if (percent < 0.05) return null;
   const RADIAN = Math.PI / 180;
@@ -28,7 +28,7 @@ const renderSliceLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent 
       x={x}
       y={y}
       fill="#fff"
-      stroke="#000"
+      stroke="#1a1a2e"
       strokeWidth={2.5}
       style={{ paintOrder: 'stroke' }}
       textAnchor="middle"
@@ -38,6 +38,18 @@ const renderSliceLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent 
     >
       {`${Math.round(percent * 100)}%`}
     </text>
+  );
+};
+
+const CustomTooltip = ({ active, payload }) => {
+  if (!active || !payload?.length) return null;
+  const { name, value } = payload[0];
+  const color = CATEGORY_COLORS[name] || COLORS[0];
+  return (
+    <div style={{ background: color, borderRadius: 8, padding: '8px 12px' }}>
+      <p style={{ fontWeight: 600, color: '#fff', textShadow: NAVY_STROKE, margin: 0 }}>{name}</p>
+      <p style={{ color: '#fff', textShadow: NAVY_STROKE, margin: '2px 0 0' }}>${value.toLocaleString()}</p>
+    </div>
   );
 };
 
@@ -215,10 +227,7 @@ export default function Dashboard() {
                       />
                     ))}
                   </Pie>
-                  <Tooltip 
-                    formatter={(value) => `$${value.toLocaleString()}`}
-                    contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                  />
+                  <Tooltip content={<CustomTooltip />} />
                   <Legend 
                     verticalAlign="bottom" 
                     height={36}
