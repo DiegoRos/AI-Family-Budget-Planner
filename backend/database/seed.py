@@ -19,15 +19,20 @@ BASE_BUDGET_TARGETS = {
         "Laundry/Dry Cleaners": 300,
         "Subscriptions": 185,
         "Entertainment": 400,
+        "House Cleaning": 300,
         "Miscellaneous": 295,
         "Personal Ana": 500,
         "Personal Diego": 300,
         "Travel": 0,
+        "Other": 0,
     },
     "income": {
         "Paycheck Ana": 9300,
         "Paycheck Diego": 5100,
         "Passive Income": 3750,
+        "Bonus Ana": 0,
+        "Bonus Diego": 0,
+        "Other": 0,
     },
 }
 

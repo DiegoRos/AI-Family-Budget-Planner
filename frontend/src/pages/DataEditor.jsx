@@ -34,6 +34,8 @@ export default function DataEditor() {
   const [selectedKeys, setSelectedKeys] = useState(new Set());
   const [bulkColumn, setBulkColumn] = useState('person');
   const [bulkValue, setBulkValue] = useState('');
+  // Staged budget edits for the selected month: { [category]: stringValue }
+  const [budgetDraft, setBudgetDraft] = useState({});
   const [newTransaction, setNewTransaction] = useState({
     date: new Date().toISOString().split('T')[0],
     description: '',
@@ -80,6 +82,22 @@ export default function DataEditor() {
     },
     enabled: !!selectedMonthId,
   });
+
+  // Re-seed the staged budget edits whenever the selected month's data loads or
+  // changes. Each month starts from its own saved targets so edits never bleed
+  // across months.
+  useEffect(() => {
+    const saved = {};
+    (monthDetails?.budgets || []).forEach((b) => {
+      saved[b.category] = b.planned_amount;
+    });
+    const next = {};
+    ALL_CATEGORIES.forEach((cat) => {
+      next[cat] = String(saved[cat] ?? 0);
+    });
+    setBudgetDraft(next);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [monthDetails, config]);
 
   const updateTransactionMutation = useMutation({
     mutationFn: async ({ id, type, data, originalType }) => {
@@ -160,12 +178,22 @@ export default function DataEditor() {
     },
   });
 
-  const updateBudgetMutation = useMutation({
-    mutationFn: async (data) => {
-      const res = await client.post('/api/budgets/', data);
-      return res.data;
+  const saveBudgetsMutation = useMutation({
+    mutationFn: async (changes) => {
+      await Promise.all(
+        changes.map((b) =>
+          client.post('/api/budgets/', {
+            month_id: selectedMonthId,
+            category: b.category,
+            type: b.type,
+            planned_amount: b.planned_amount,
+          })
+        )
+      );
     },
     onSuccess: () => {
+      // The monthDetails effect re-syncs budgetDraft from fresh saved data,
+      // which clears the unsaved-changes bar.
       queryClient.invalidateQueries(['month', selectedMonthId]);
     },
   });
@@ -242,6 +270,43 @@ export default function DataEditor() {
 
   const budgets = monthDetails?.budgets || [];
 
+  // Map of saved planned amounts for the selected month, for change detection.
+  const savedBudgetMap = {};
+  budgets.forEach((b) => { savedBudgetMap[b.category] = b.planned_amount; });
+
+  // Categories whose staged value differs from what's saved.
+  const changedBudgets = ALL_CATEGORIES
+    .map((cat) => ({
+      category: cat,
+      type: EXPENSE_CATEGORIES.includes(cat) ? 'expense' : 'income',
+      planned_amount: parseFloat(budgetDraft[cat] || 0) || 0,
+    }))
+    .filter((b) => b.planned_amount !== (savedBudgetMap[b.category] ?? 0));
+  const hasUnsavedBudgetChanges = changedBudgets.length > 0;
+
+  const handleSaveBudgets = () => {
+    if (!hasUnsavedBudgetChanges) return;
+    saveBudgetsMutation.mutate(changedBudgets);
+  };
+
+  const handleDiscardBudgets = () => {
+    const reset = {};
+    ALL_CATEGORIES.forEach((cat) => { reset[cat] = String(savedBudgetMap[cat] ?? 0); });
+    setBudgetDraft(reset);
+  };
+
+  // Guard month switches so unsaved budget edits aren't silently lost.
+  const handleSelectMonth = (id) => {
+    if (id === selectedMonthId) return;
+    if (
+      hasUnsavedBudgetChanges &&
+      !window.confirm('You have unsaved budget changes. Discard them and switch months?')
+    ) {
+      return;
+    }
+    setSelectedMonthId(id);
+  };
+
   return (
     <div className="max-w-6xl mx-auto space-y-8 animate-in fade-in duration-500">
       <header>
@@ -249,10 +314,10 @@ export default function DataEditor() {
         <p className="text-gray-500 mt-1">Manage transactions and set budget targets.</p>
       </header>
 
-      <MonthSelector 
-        months={months} 
-        selectedMonthId={selectedMonthId} 
-        onSelect={(id) => setSelectedMonthId(id)} 
+      <MonthSelector
+        months={months}
+        selectedMonthId={selectedMonthId}
+        onSelect={(id) => handleSelectMonth(id)}
       />
 
       <div className="flex border-b border-gray-200 justify-between items-center pr-4">
@@ -609,6 +674,32 @@ export default function DataEditor() {
 
       {activeTab === 'budget' && (
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm">
+          {hasUnsavedBudgetChanges && !monthDetails?.is_frozen && (
+            <div className="flex flex-wrap items-center gap-3 px-6 py-3 bg-[#334960]/5 border-b border-gray-100 text-sm">
+              <span className="font-medium text-[#334960]">
+                {changedBudgets.length} unsaved change{changedBudgets.length === 1 ? '' : 's'}
+              </span>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  onClick={handleDiscardBudgets}
+                  disabled={saveBudgetsMutation.isPending}
+                  className="px-3 py-1.5 rounded-lg text-sm font-medium text-gray-500 hover:text-gray-700 hover:bg-gray-100 transition-colors disabled:opacity-50"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={handleSaveBudgets}
+                  disabled={saveBudgetsMutation.isPending}
+                  className="bg-[#334960] text-white px-4 py-1.5 rounded-lg text-sm font-medium hover:bg-[#28394d] transition-colors flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {saveBudgetsMutation.isPending
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : <Save className="w-4 h-4" />}
+                  Save changes
+                </button>
+              </div>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-gray-50 text-gray-600 font-medium border-b border-gray-100">
@@ -616,14 +707,14 @@ export default function DataEditor() {
                   <th className="px-6 py-3">Category</th>
                   <th className="px-6 py-3">Type</th>
                   <th className="px-6 py-3 text-right">Planned Amount</th>
-                  <th className="px-6 py-3 w-24 text-right">Action</th>
+                  <th className="px-6 py-3 w-24 text-right">Status</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {ALL_CATEGORIES.map((cat) => {
-                  const budget = budgets.find(b => b.category === cat);
                   const isExpense = EXPENSE_CATEGORIES.includes(cat);
-                  
+                  const isChanged = (parseFloat(budgetDraft[cat] || 0) || 0) !== (savedBudgetMap[cat] ?? 0);
+
                   return (
                     <tr key={cat} className="hover:bg-gray-50/50 transition-colors">
                       <td className="px-6 py-3 font-medium text-gray-700">{cat}</td>
@@ -635,27 +726,19 @@ export default function DataEditor() {
                       <td className="px-6 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           $
-                          <input 
-                            type="number" 
-                            defaultValue={budget?.planned_amount || 0}
-                            onBlur={(e) => {
-                              const val = parseFloat(e.target.value);
-                              if (val !== (budget?.planned_amount || 0)) {
-                                updateBudgetMutation.mutate({
-                                  month_id: selectedMonthId,
-                                  category: cat,
-                                  type: isExpense ? 'expense' : 'income',
-                                  planned_amount: val
-                                });
-                              }
-                            }}
+                          <input
+                            type="number"
+                            value={budgetDraft[cat] ?? ''}
+                            onChange={(e) => setBudgetDraft((prev) => ({ ...prev, [cat]: e.target.value }))}
                             disabled={monthDetails?.is_frozen}
-                            className="bg-transparent border-b border-transparent focus:border-gray-300 outline-none w-24 text-right disabled:opacity-50"
+                            className={`bg-transparent border-b outline-none w-24 text-right disabled:opacity-50 transition-colors ${isChanged ? 'border-[#334960] text-[#334960] font-semibold' : 'border-transparent focus:border-gray-300'}`}
                           />
                         </div>
                       </td>
                       <td className="px-6 py-3 text-right">
-                        {updateBudgetMutation.isPending && <Loader2 className="w-4 h-4 animate-spin inline text-gray-400" />}
+                        {isChanged && (
+                          <span className="text-[10px] font-bold uppercase tracking-wide text-[#334960]">Edited</span>
+                        )}
                       </td>
                     </tr>
                   );
