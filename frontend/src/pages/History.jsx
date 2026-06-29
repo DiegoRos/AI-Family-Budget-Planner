@@ -17,6 +17,32 @@ import { CATEGORY_COLORS } from '../api/constants';
 
 const COLORS = ['#334960', '#4a6b8c', '#628db8', '#7bb0e4', '#93d2ff', '#aadaff'];
 
+// Render slice percentage with a dark paint-order outline so light text
+// stays readable on light slices.
+const renderSliceLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+  if (percent < 0.05) return null;
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) / 2;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="#fff"
+      stroke="#000"
+      strokeWidth={2.5}
+      style={{ paintOrder: 'stroke' }}
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontSize={12}
+      fontWeight={600}
+    >
+      {`${Math.round(percent * 100)}%`}
+    </text>
+  );
+};
+
 export default function HistoryPage() {
   const [selectedMonthId, setSelectedMonthId] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
@@ -201,6 +227,8 @@ export default function HistoryPage() {
                         dataKey="value"
                         onClick={(data) => setSelectedCategory(data.name)}
                         className="cursor-pointer outline-none"
+                        label={renderSliceLabel}
+                        labelLine={false}
                       >
                         {chartData.map((entry, index) => (
                           <Cell 

@@ -15,8 +15,38 @@ import { CATEGORY_COLORS } from '../api/constants';
 
 const COLORS = ['#334960', '#4a6b8c', '#628db8', '#7bb0e4', '#93d2ff', '#aadaff'];
 
+// Render slice percentage with a dark paint-order outline so light text
+// stays readable on light slices.
+const renderSliceLabel = ({ cx, cy, midAngle, innerRadius, outerRadius, percent }) => {
+  if (percent < 0.05) return null;
+  const RADIAN = Math.PI / 180;
+  const radius = innerRadius + (outerRadius - innerRadius) / 2;
+  const x = cx + radius * Math.cos(-midAngle * RADIAN);
+  const y = cy + radius * Math.sin(-midAngle * RADIAN);
+  return (
+    <text
+      x={x}
+      y={y}
+      fill="#fff"
+      stroke="#000"
+      strokeWidth={2.5}
+      style={{ paintOrder: 'stroke' }}
+      textAnchor="middle"
+      dominantBaseline="central"
+      fontSize={12}
+      fontWeight={600}
+    >
+      {`${Math.round(percent * 100)}%`}
+    </text>
+  );
+};
+
+const PERSON_OPTIONS = ['Combined', 'Ana', 'Diego', 'Ana/Diego'];
+
 export default function Dashboard() {
   const [selectedCategory, setSelectedCategory] = React.useState(null);
+  // null = "Combined" (no filtering)
+  const [personFilter, setPersonFilter] = React.useState(null);
   const { data: months, isLoading: loadingMonths } = useQuery({
     queryKey: ['months'],
     queryFn: async () => {
@@ -65,16 +95,22 @@ export default function Dashboard() {
   const totalActualIncome = incomes.reduce((sum, i) => sum + i.amount, 0);
   const savings = totalActualIncome - totalActualExpenses;
 
+  // Apply the person filter before deriving the category table & charts.
+  // "Combined" (personFilter === null) shows everything.
+  const personExpenses = personFilter
+    ? expenses.filter(e => e.person === personFilter)
+    : expenses;
+
   // Group expenses by category
-  const expensesByCategory = expenses.reduce((acc, e) => {
+  const expensesByCategory = personExpenses.reduce((acc, e) => {
     acc[e.category] = (acc[e.category] || 0) + e.amount;
     return acc;
   }, {});
 
   const chartData = Object.entries(expensesByCategory).map(([name, value]) => ({ name, value }));
-  
-  const filteredExpenses = selectedCategory 
-    ? expenses.filter(e => e.category === selectedCategory).sort((a, b) => new Date(b.date) - new Date(a.date))
+
+  const filteredExpenses = selectedCategory
+    ? personExpenses.filter(e => e.category === selectedCategory).sort((a, b) => new Date(b.date) - new Date(a.date))
     : [];
 
   return (
@@ -86,8 +122,30 @@ export default function Dashboard() {
           </h1>
           <p className="text-gray-500 mt-1">Monthly Financial Overview</p>
         </div>
-        <div className="bg-white border border-gray-100 rounded-md px-3 py-1 text-sm font-medium text-gray-500">
-          {monthDetails.is_frozen ? '🔒 Frozen' : '🔓 Active'}
+        <div className="flex flex-col items-end gap-3">
+          <div className="bg-white border border-gray-100 rounded-md px-3 py-1 text-sm font-medium text-gray-500">
+            {monthDetails.is_frozen ? '🔒 Frozen' : '🔓 Active'}
+          </div>
+          {/* Person filter (affects category table & charts only) */}
+          <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5">
+            {PERSON_OPTIONS.map((opt) => {
+              const value = opt === 'Combined' ? null : opt;
+              const active = personFilter === value;
+              return (
+                <button
+                  key={opt}
+                  onClick={() => setPersonFilter(value)}
+                  className={`px-3 py-1 text-sm font-medium rounded transition-all duration-150 ${
+                    active
+                      ? 'bg-[#334960] text-white'
+                      : 'text-gray-500 hover:text-[#1a1a2e]'
+                  }`}
+                >
+                  {opt}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </header>
 
@@ -145,6 +203,8 @@ export default function Dashboard() {
                     dataKey="value"
                     onClick={(data) => setSelectedCategory(data.name)}
                     className="cursor-pointer outline-none"
+                    label={renderSliceLabel}
+                    labelLine={false}
                   >
                     {chartData.map((entry, index) => (
                       <Cell 

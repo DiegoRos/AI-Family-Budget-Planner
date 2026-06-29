@@ -6,6 +6,8 @@ services:
       - budget_data:/app/data
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - DATABASE_URL=sqlite:///./data/budget.db
       - OLLAMA_HOST=http://ollama:11434
