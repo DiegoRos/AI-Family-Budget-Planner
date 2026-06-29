@@ -2,6 +2,7 @@
 documents/
 Old/
 *.zip
+Base_Budget_Targets.md
 
 # --- Claude Code ---
 .claude/

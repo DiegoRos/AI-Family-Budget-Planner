@@ -29,11 +29,12 @@ familia-budget/
 │   ├── database/
 │   │   ├── db.py              ← SQLAlchemy engine + session
 │   │   ├── models.py          ← ORM models
-│   │   └── seed.py            ← Optional: seed categories/budgets
+│   │   └── seed.py            ← BASE_BUDGET_TARGETS + per-month budget auto-seed
 │   ├── routers/
 │   │   ├── transactions.py    ← CRUD for expenses & income
-│   │   ├── budgets.py         ← Planned budget per category/month
+│   │   ├── budgets.py         ← Planned budget per category/month (upsert by month+category)
 │   │   ├── months.py          ← Frozen month snapshots
+│   │   ├── config.py          ← /api/config: category lists + base budget (single source)
 │   │   └── export.py          ← Excel/CSV download endpoints
 │   ├── services/
 │   │   └── llm_extractor.py   ← LangChain + DeepSeek-R1 pipeline
@@ -127,7 +128,7 @@ Paycheck Ana, Paycheck Diego, Passive Income, Bonus Ana, Bonus Diego, Other
 1. **Dashboard (`/`):** Current month vs budget. Contains summary cards, category table (Planned vs Actual vs Diff), and charts.
 2. **History (`/history`):** Read-only view of frozen past months via a toggle selector.
 3. **Upload & Extract (`/upload`):** Drag-and-drop file upload. Sends to `POST /api/extract`. Shows an editable result table before committing.
-4. **Data Editor (`/editor`):** Tabbed view for editing raw transactions and planned budgets.
+4. **Data Editor (`/editor`):** Tabbed view for editing raw transactions and planned budgets. The **Budget Targets** tab stages edits locally per selected month and shows a Save/Discard bar with an unsaved-changes count — nothing is written until **Save** (no autosave-on-blur). Save batch-upserts only changed categories to the selected month; switching months with unsaved edits prompts a confirm.
 5. **Export (`/export`):** Download views to Excel (mirroring original format) or CSV.
 
 ## Implementation Notes & Gotchas
@@ -138,6 +139,9 @@ Paycheck Ana, Paycheck Diego, Passive Income, Bonus Ana, Bonus Diego, Other
 - **SQLite Concurrency:** Use `check_same_thread=False` in SQLAlchemy.
 - **Fuzzy Matching:** Use `difflib.get_close_matches` if the LLM hallucinated a category name.
 - **React Query:** Use `@tanstack/react-query` for all data fetching.
+- **Budget config — single source of truth:** Categories and base planned amounts come from the `BUDGET_CONFIG` env var (JSON, set in `.env`). Both `seed.py` (`_load_base_budget`) and `routers/config.py` read it and **fall back to `BASE_BUDGET_TARGETS`** (hardcoded in `seed.py`, kept in sync with `.env`) when the env var is absent. Keep these two in sync — a mismatch makes the Data Editor's category list (from `/api/config`) diverge from the seeded budget rows shown on the Dashboard. *Gotcha:* `BUDGET_CONFIG` only reaches the backend container via `env_file: .env` in `docker-compose.yml`; the `BASE_BUDGET_TARGETS` fallback exists so the app still works if it doesn't.
+- **Budget auto-seed:** `seed_budgets_for_month(month_id, db)` (in `seed.py`) is idempotent (skips if the month already has budget rows) and is called on month creation (`months.py` POST). Budgets are **independent per month** (rows keyed by `month_id`); editing/saving one month never affects another.
+- **Budget targets source by page:** Dashboard/History render `Planned vs Actual` from each month's seeded **DB budget rows** (`monthDetails.budgets`). The Data Editor budget tab builds its row list from the **`/api/config` category list**, then fills planned amounts from the month's budgets.
 
 ## Verification
 
@@ -169,11 +173,13 @@ Before running the app, ensure you have installed:
    DATABASE_URL=sqlite:///./data/budget.db
    OLLAMA_HOST=http://localhost:11434
    VITE_API_URL=http://localhost:8000
+   BUDGET_CONFIG={"expense":{...},"income":{...}}
    ```
 
    - `DATABASE_URL`: SQLite database path (auto-created in `backend/data/`)
    - `OLLAMA_HOST`: Ollama API endpoint (for local Ollama, use `http://localhost:11434`)
    - `VITE_API_URL`: Frontend's API base URL (for local dev, use `http://localhost:8000`)
+   - `BUDGET_CONFIG`: JSON of category → base planned amount (`expense`/`income`). Drives `/api/config` and the per-month budget auto-seed; falls back to `BASE_BUDGET_TARGETS` in `seed.py` if unset. Reaches the backend container via `env_file: .env` in `docker-compose.yml`.
 
 ### Starting the App with Docker Compose
 

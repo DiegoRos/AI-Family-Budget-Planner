@@ -57,7 +57,6 @@
 
 ### 4. Pie Chart Text Readability
 - [X] Add a text stroke / paint-order outline to pie chart labels so light-colored text is readable on light slice backgrounds.
-- [X] Target: `recharts` `<Label>` or custom label renderer — apply `stroke="#000"` / `paintOrder: "stroke"` CSS technique. (Applied on Dashboard + History.)
 
 ### 5. Docker config consistency (follow-up)
 - [X] Added `env_file: .env` to the backend service in `docker-compose.yml` so `BUDGET_CONFIG` reaches the container (otherwise category lists and auto-seed silently fell back to defaults inside Docker). Explicit `environment:` entries still override for Docker-network URLs.
