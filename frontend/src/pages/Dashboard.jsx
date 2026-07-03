@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import client from '../api/client';
 import StatCard from '../components/StatCard';
@@ -56,7 +57,7 @@ const CustomTooltip = ({ active, payload }) => {
 const PERSON_OPTIONS = ['Combined', 'Ana', 'Diego', 'Ana/Diego'];
 
 export default function Dashboard() {
-  const [selectedCategory, setSelectedCategory] = React.useState(null);
+  const navigate = useNavigate();
   // null = "Combined" (no filtering)
   const [personFilter, setPersonFilter] = React.useState(null);
   const { data: months, isLoading: loadingMonths } = useQuery({
@@ -121,9 +122,13 @@ export default function Dashboard() {
 
   const chartData = Object.entries(expensesByCategory).map(([name, value]) => ({ name, value }));
 
-  const filteredExpenses = selectedCategory
-    ? personExpenses.filter(e => e.category === selectedCategory).sort((a, b) => new Date(b.date) - new Date(a.date))
-    : [];
+  // Jump to the Data Editor for this month, pre-filtered to the clicked category
+  // (and the active person filter, if any).
+  const goToEditor = (category) => {
+    const params = new URLSearchParams({ month: currentMonthData.id, type: 'expense', category });
+    if (personFilter) params.set('person', personFilter);
+    navigate(`/editor?${params}`);
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -180,6 +185,7 @@ export default function Dashboard() {
                 planned={budget.planned_amount}
                 actual={expensesByCategory[budget.category] || 0}
                 type="expense"
+                onClick={goToEditor}
               />
             ))}
             {budgets.length === 0 && (
@@ -192,14 +198,6 @@ export default function Dashboard() {
         <div className="bg-white p-6 rounded-lg border border-gray-100">
           <div className="flex justify-between items-center mb-6">
             <h2 className="text-lg font-semibold">Expense Breakdown</h2>
-            {selectedCategory && (
-              <button 
-                onClick={() => setSelectedCategory(null)}
-                className="text-xs text-blue-600 hover:underline"
-              >
-                Clear filter
-              </button>
-            )}
           </div>
           <div className="h-80 w-full">
             {chartData.length > 0 ? (
@@ -213,25 +211,25 @@ export default function Dashboard() {
                     outerRadius={100}
                     paddingAngle={5}
                     dataKey="value"
-                    onClick={(data) => setSelectedCategory(data.name)}
+                    onClick={(data) => goToEditor(data.name)}
                     className="cursor-pointer outline-none"
                     label={renderSliceLabel}
                     labelLine={false}
                   >
                     {chartData.map((entry, index) => (
-                      <Cell 
-                        key={`cell-${index}`} 
-                        fill={CATEGORY_COLORS[entry.name] || COLORS[index % COLORS.length]} 
-                        stroke={selectedCategory === entry.name ? '#1a1a2e' : 'none'}
+                      <Cell
+                        key={`cell-${index}`}
+                        fill={CATEGORY_COLORS[entry.name] || COLORS[index % COLORS.length]}
+                        stroke="none"
                         strokeWidth={2}
                       />
                     ))}
                   </Pie>
                   <Tooltip content={<CustomTooltip />} />
-                  <Legend 
-                    verticalAlign="bottom" 
+                  <Legend
+                    verticalAlign="bottom"
                     height={36}
-                    onClick={(e) => setSelectedCategory(prev => prev === e.value ? null : e.value)}
+                    onClick={(e) => goToEditor(e.value)}
                     wrapperStyle={{ cursor: 'pointer' }}
                   />
                 </PieChart>
@@ -244,38 +242,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Detailed Category View */}
-      {selectedCategory && (
-        <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-300">
-          <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
-            <h3 className="font-bold text-[#1a1a2e]">Details: {selectedCategory}</h3>
-            <span className="text-sm font-medium text-gray-500">${expensesByCategory[selectedCategory]?.toLocaleString()} total</span>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead className="bg-gray-50/50 text-gray-500 font-medium border-b border-gray-100">
-                <tr>
-                  <th className="px-6 py-3">Date</th>
-                  <th className="px-6 py-3">Description</th>
-                  <th className="px-6 py-3">Person</th>
-                  <th className="px-6 py-3 text-right">Amount</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filteredExpenses.map((e) => (
-                  <tr key={e.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-3 text-gray-600">{e.date}</td>
-                    <td className="px-6 py-3 font-medium text-gray-800">{e.description}</td>
-                    <td className="px-6 py-3 text-gray-600">{e.person}</td>
-                    <td className="px-6 py-3 text-right font-semibold text-gray-900">${e.amount.toLocaleString()}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

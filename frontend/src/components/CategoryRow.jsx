@@ -1,17 +1,27 @@
 import React from 'react';
 
-export default function CategoryRow({ category, planned, actual, type = 'expense' }) {
+export default function CategoryRow({ category, planned, actual, type = 'expense', onClick }) {
   const diff = actual - planned;
   const isOverBudget = type === 'expense' ? diff > 0 : diff < 0;
   const isUnderBudget = type === 'expense' ? diff < 0 : diff > 0;
 
   const diffColor = isOverBudget ? 'text-red-500' : isUnderBudget ? 'text-green-600' : 'text-gray-400';
-  
+
   const percentage = planned > 0 ? (actual / planned) * 100 : 0;
   const barColor = isOverBudget ? 'bg-red-500' : 'bg-[#334960]';
 
+  const clickable = typeof onClick === 'function';
+
   return (
-    <div className="py-4 border-b border-gray-50 last:border-0 group">
+    <div
+      className={`py-4 border-b border-gray-50 last:border-0 group ${
+        clickable ? 'cursor-pointer hover:bg-gray-50/70 -mx-2 px-2 rounded-md transition-colors' : ''
+      }`}
+      onClick={clickable ? () => onClick(category) : undefined}
+      role={clickable ? 'button' : undefined}
+      tabIndex={clickable ? 0 : undefined}
+      onKeyDown={clickable ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(category); } } : undefined}
+    >
       <div className="flex justify-between items-center mb-2">
         <span className="font-medium text-gray-700">{category}</span>
         <div className="text-sm font-semibold">

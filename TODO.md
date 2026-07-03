@@ -61,3 +61,23 @@
 ### 5. Docker config consistency (follow-up)
 - [X] Added `env_file: .env` to the backend service in `docker-compose.yml` so `BUDGET_CONFIG` reaches the container (otherwise category lists and auto-seed silently fell back to defaults inside Docker). Explicit `environment:` entries still override for Docker-network URLs.
 
+## 🟢 Phase 6: History parity, filters & drill-down navigation (COMPLETE)
+
+### 1. History Feature Parity with Dashboard
+- [x] Add person filter (Combined/Ana/Diego/Ana/Diego) to History, mirroring Dashboard.
+- [x] Apply the filter to the category table + pie chart only (summary cards stay combined).
+- [x] Fix latent bug: import `Calendar` from lucide-react in History.jsx.
+
+### 2. Data Editor Transaction Filters
+- [x] Add a collapsible filter bar (toggle + active-count + Clear all) above the transactions table.
+- [x] Filters: person, category, expense/income type, date range (from/to), amount min/max.
+- [x] Apply client-side to the combined transactions before sort/render.
+- [x] Restrict Select-All / bulk edit to the currently filtered rows.
+
+### 3. Category Click-Through (Dashboard/History → Data Editor)
+- [x] Add `useNavigate` handler that opens `/editor?month=&type=expense&category=&person=`.
+- [x] Wire it to Planned-vs-Actual rows and pie slices/legend on both pages.
+- [x] Add optional `onClick` to CategoryRow to make rows clickable.
+- [x] Remove the in-page drill-down detail table + `selectedCategory` state from both pages.
+- [x] In Data Editor, read query params on mount to set month, filters, transactions tab, open filter bar (param month overrides auto-select).
+

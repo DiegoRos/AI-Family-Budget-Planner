@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import client from '../api/client';
 import MonthSelector from '../components/MonthSelector';
@@ -14,7 +15,8 @@ import {
   Target,
   Edit2,
   ChevronUp,
-  ChevronDown
+  ChevronDown,
+  Filter
 } from 'lucide-react';
 import { PERSONS } from '../api/constants';
 import { useConfig } from '../api/useConfig';
@@ -25,12 +27,29 @@ export default function DataEditor() {
   const INCOME_CATEGORIES = config?.income_categories ?? [];
   const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
 
-  const [selectedMonthId, setSelectedMonthId] = useState(null);
+  // Read filter/month intent passed in via URL query params (e.g. from a
+  // category click on the Dashboard or History pages).
+  const [searchParams] = useSearchParams();
+
+  const [selectedMonthId, setSelectedMonthId] = useState(() => {
+    const m = searchParams.get('month');
+    return m ? Number(m) : null;
+  });
   const [activeTab, setActiveTab] = useState('transactions'); // 'transactions' or 'budget'
   const [editingId, setEditingId] = useState(null);
   const [editValues, setEditValues] = useState({});
   const [isAdding, setIsAdding] = useState(false);
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
+  // Client-side transaction filters (Transactions tab only). Seed from URL params.
+  const [filters, setFilters] = useState(() => ({
+    person: searchParams.get('person') || '',
+    category: searchParams.get('category') || '',
+    type: searchParams.get('type') || '',
+    dateFrom: '', dateTo: '', minAmount: '', maxAmount: '',
+  }));
+  const [showFilters, setShowFilters] = useState(
+    () => ['person', 'category', 'type'].some((k) => searchParams.get(k))
+  );
   const [selectedKeys, setSelectedKeys] = useState(new Set());
   const [bulkColumn, setBulkColumn] = useState('person');
   const [bulkValue, setBulkValue] = useState('');
@@ -247,10 +266,29 @@ export default function DataEditor() {
 
   if (loadingMonths) return <div className="flex justify-center py-20"><Loader2 className="animate-spin" /></div>;
 
+  const activeFilterCount = Object.values(filters).filter((v) => v !== '').length;
+  const clearFilters = () => setFilters({
+    person: '', category: '', type: '',
+    dateFrom: '', dateTo: '', minAmount: '', maxAmount: '',
+  });
+
+  const matchesFilters = (t) => {
+    if (filters.person && t.person !== filters.person) return false;
+    if (filters.category && t.category !== filters.category) return false;
+    if (filters.type && t.type !== filters.type) return false;
+    if (filters.dateFrom && t.date < filters.dateFrom) return false;
+    if (filters.dateTo && t.date > filters.dateTo) return false;
+    if (filters.minAmount !== '' && t.amount < parseFloat(filters.minAmount)) return false;
+    if (filters.maxAmount !== '' && t.amount > parseFloat(filters.maxAmount)) return false;
+    return true;
+  };
+
+  // Combined, filtered, then sorted. Select-all and bulk edit operate on this
+  // (already filtered) list, so hidden rows are never touched.
   const allTransactions = [
     ...(monthDetails?.expenses?.map(e => ({ ...e, type: 'expense' })) || []),
     ...(monthDetails?.incomes?.map(i => ({ ...i, type: 'income' })) || [])
-  ].sort((a, b) => {
+  ].filter(matchesFilters).sort((a, b) => {
     const { key, direction } = sortConfig;
     let valA = a[key];
     let valB = b[key];
@@ -361,6 +399,110 @@ export default function DataEditor() {
       )}
 
       {activeTab === 'transactions' && (
+        <>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm">
+          <div className="flex items-center gap-3 px-6 py-3">
+            <button
+              onClick={() => setShowFilters((v) => !v)}
+              className="flex items-center gap-2 text-sm font-medium text-[#334960] hover:text-[#28394d] transition-colors"
+            >
+              <Filter className="w-4 h-4" />
+              Filters
+              {activeFilterCount > 0 && (
+                <span className="bg-[#334960] text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
+                  {activeFilterCount}
+                </span>
+              )}
+              {showFilters ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+            </button>
+            {activeFilterCount > 0 && (
+              <button
+                onClick={clearFilters}
+                className="text-sm text-gray-500 hover:text-gray-700 transition-colors ml-auto"
+              >
+                Clear all
+              </button>
+            )}
+          </div>
+          {showFilters && (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 px-6 pb-4 border-t border-gray-100 pt-4">
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+                Person
+                <select
+                  value={filters.person}
+                  onChange={(e) => setFilters((f) => ({ ...f, person: e.target.value }))}
+                  className="bg-white border border-gray-200 rounded px-2 py-1.5 outline-none text-sm text-gray-800"
+                >
+                  <option value="">All</option>
+                  {PERSONS.map((p) => <option key={p} value={p}>{p}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+                Category
+                <select
+                  value={filters.category}
+                  onChange={(e) => setFilters((f) => ({ ...f, category: e.target.value }))}
+                  className="bg-white border border-gray-200 rounded px-2 py-1.5 outline-none text-sm text-gray-800"
+                >
+                  <option value="">All</option>
+                  {ALL_CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+                Type
+                <select
+                  value={filters.type}
+                  onChange={(e) => setFilters((f) => ({ ...f, type: e.target.value }))}
+                  className="bg-white border border-gray-200 rounded px-2 py-1.5 outline-none text-sm text-gray-800"
+                >
+                  <option value="">All</option>
+                  <option value="expense">Expense</option>
+                  <option value="income">Income</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+                Date from
+                <input
+                  type="date"
+                  value={filters.dateFrom}
+                  onChange={(e) => setFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                  className="bg-white border border-gray-200 rounded px-2 py-1.5 outline-none text-sm text-gray-800"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+                Date to
+                <input
+                  type="date"
+                  value={filters.dateTo}
+                  onChange={(e) => setFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                  className="bg-white border border-gray-200 rounded px-2 py-1.5 outline-none text-sm text-gray-800"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+                Min amount
+                <input
+                  type="number"
+                  step="0.01"
+                  value={filters.minAmount}
+                  onChange={(e) => setFilters((f) => ({ ...f, minAmount: e.target.value }))}
+                  placeholder="0"
+                  className="bg-white border border-gray-200 rounded px-2 py-1.5 outline-none text-sm text-gray-800"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-xs font-medium text-gray-500">
+                Max amount
+                <input
+                  type="number"
+                  step="0.01"
+                  value={filters.maxAmount}
+                  onChange={(e) => setFilters((f) => ({ ...f, maxAmount: e.target.value }))}
+                  placeholder="∞"
+                  className="bg-white border border-gray-200 rounded px-2 py-1.5 outline-none text-sm text-gray-800"
+                />
+              </label>
+            </div>
+          )}
+        </div>
         <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm">
           {selectedKeys.size > 0 && !monthDetails?.is_frozen && (
             <div className="flex flex-wrap items-center gap-3 px-6 py-3 bg-[#334960]/5 border-b border-gray-100 text-sm">
@@ -662,7 +804,9 @@ export default function DataEditor() {
                 {allTransactions.length === 0 && (
                   <tr>
                     <td colSpan={monthDetails?.is_frozen ? 7 : 8} className="px-6 py-12 text-center text-gray-400">
-                      No transactions found for this month.
+                      {activeFilterCount > 0
+                        ? 'No transactions match the current filters.'
+                        : 'No transactions found for this month.'}
                     </td>
                   </tr>
                 )}
@@ -670,6 +814,7 @@ export default function DataEditor() {
             </table>
           </div>
         </div>
+        </>
       )}
 
       {activeTab === 'budget' && (

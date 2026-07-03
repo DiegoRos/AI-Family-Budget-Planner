@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import client from '../api/client';
 import StatCard from '../components/StatCard';
 import CategoryRow from '../components/CategoryRow';
 import MonthSelector from '../components/MonthSelector';
-import { Lock, Unlock, Loader2 } from 'lucide-react';
+import { Lock, Unlock, Loader2, Calendar } from 'lucide-react';
 import { 
   PieChart, 
   Pie, 
@@ -55,10 +56,14 @@ const CustomTooltip = ({ active, payload }) => {
   );
 };
 
+const PERSON_OPTIONS = ['Combined', 'Ana', 'Diego', 'Ana/Diego'];
+
 export default function HistoryPage() {
+  const navigate = useNavigate();
   const [selectedMonthId, setSelectedMonthId] = useState(null);
   const [selectedPeriod, setSelectedPeriod] = useState(null);
-  const [selectedCategory, setSelectedCategory] = useState(null);
+  // null = "Combined" (no filtering)
+  const [personFilter, setPersonFilter] = useState(null);
   const queryClient = useQueryClient();
 
   const { data: months, isLoading: loadingMonths } = useQuery({
@@ -93,7 +98,6 @@ export default function HistoryPage() {
   const handleSelect = (id, period) => {
     setSelectedMonthId(id);
     setSelectedPeriod(period);
-    setSelectedCategory(null);
   };
 
   const toggleFreezeMutation = useMutation({
@@ -128,16 +132,26 @@ export default function HistoryPage() {
   const totalActualIncome = incomes.reduce((sum, i) => sum + i.amount, 0);
   const savings = totalActualIncome - totalActualExpenses;
 
-  const expensesByCategory = expenses.reduce((acc, e) => {
+  // Apply the person filter before deriving the category table & charts.
+  // "Combined" (personFilter === null) shows everything.
+  const personExpenses = personFilter
+    ? expenses.filter(e => e.person === personFilter)
+    : expenses;
+
+  const expensesByCategory = personExpenses.reduce((acc, e) => {
     acc[e.category] = (acc[e.category] || 0) + e.amount;
     return acc;
   }, {});
 
   const chartData = Object.entries(expensesByCategory).map(([name, value]) => ({ name, value }));
-  
-  const filteredExpenses = selectedCategory 
-    ? expenses.filter(e => e.category === selectedCategory).sort((a, b) => new Date(b.date) - new Date(a.date))
-    : [];
+
+  // Jump to the Data Editor for this month, pre-filtered to the clicked category
+  // (and the active person filter, if any).
+  const goToEditor = (category) => {
+    const params = new URLSearchParams({ month: selectedMonthId, type: 'expense', category });
+    if (personFilter) params.set('person', personFilter);
+    navigate(`/editor?${params}`);
+  };
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -169,23 +183,45 @@ export default function HistoryPage() {
                 </span>
               </p>
             </div>
-            <button
-              onClick={() => toggleFreezeMutation.mutate({ id: monthDetails.id, freeze: !monthDetails.is_frozen })}
-              disabled={toggleFreezeMutation.isPending}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
-                ${monthDetails.is_frozen 
-                  ? 'bg-green-50 text-green-700 hover:bg-green-100' 
-                  : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
-            >
-              {toggleFreezeMutation.isPending ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : monthDetails.is_frozen ? (
-                <Unlock className="w-4 h-4" />
-              ) : (
-                <Lock className="w-4 h-4" />
-              )}
-              {monthDetails.is_frozen ? 'Unfreeze Month' : 'Freeze Month'}
-            </button>
+            <div className="flex flex-col items-end gap-3">
+              <button
+                onClick={() => toggleFreezeMutation.mutate({ id: monthDetails.id, freeze: !monthDetails.is_frozen })}
+                disabled={toggleFreezeMutation.isPending}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg font-medium transition-all
+                  ${monthDetails.is_frozen
+                    ? 'bg-green-50 text-green-700 hover:bg-green-100'
+                    : 'bg-red-50 text-red-700 hover:bg-red-100'}`}
+              >
+                {toggleFreezeMutation.isPending ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : monthDetails.is_frozen ? (
+                  <Unlock className="w-4 h-4" />
+                ) : (
+                  <Lock className="w-4 h-4" />
+                )}
+                {monthDetails.is_frozen ? 'Unfreeze Month' : 'Freeze Month'}
+              </button>
+              {/* Person filter (affects category table & charts only) */}
+              <div className="inline-flex rounded-md border border-gray-200 bg-gray-50 p-0.5">
+                {PERSON_OPTIONS.map((opt) => {
+                  const value = opt === 'Combined' ? null : opt;
+                  const active = personFilter === value;
+                  return (
+                    <button
+                      key={opt}
+                      onClick={() => setPersonFilter(value)}
+                      className={`px-3 py-1 text-sm font-medium rounded transition-all duration-150 ${
+                        active
+                          ? 'bg-[#334960] text-white'
+                          : 'text-gray-500 hover:text-[#1a1a2e]'
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -205,6 +241,7 @@ export default function HistoryPage() {
                     planned={budget.planned_amount}
                     actual={expensesByCategory[budget.category] || 0}
                     type="expense"
+                    onClick={goToEditor}
                   />
                 ))}
                 {budgets.length === 0 && (
@@ -216,14 +253,6 @@ export default function HistoryPage() {
             <div className="bg-white p-6 rounded-lg border border-gray-100">
               <div className="flex justify-between items-center mb-6">
                 <h2 className="text-lg font-semibold">Expense Breakdown</h2>
-                {selectedCategory && (
-                  <button 
-                    onClick={() => setSelectedCategory(null)}
-                    className="text-xs text-blue-600 hover:underline"
-                  >
-                    Clear filter
-                  </button>
-                )}
               </div>
               <div className="h-80 w-full">
                 {chartData.length > 0 ? (
@@ -237,25 +266,25 @@ export default function HistoryPage() {
                         outerRadius={100}
                         paddingAngle={5}
                         dataKey="value"
-                        onClick={(data) => setSelectedCategory(data.name)}
+                        onClick={(data) => goToEditor(data.name)}
                         className="cursor-pointer outline-none"
                         label={renderSliceLabel}
                         labelLine={false}
                       >
                         {chartData.map((entry, index) => (
-                          <Cell 
-                            key={`cell-${index}`} 
-                            fill={CATEGORY_COLORS[entry.name] || COLORS[index % COLORS.length]} 
-                            stroke={selectedCategory === entry.name ? '#1a1a2e' : 'none'}
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={CATEGORY_COLORS[entry.name] || COLORS[index % COLORS.length]}
+                            stroke="none"
                             strokeWidth={2}
                           />
                         ))}
                       </Pie>
                       <Tooltip content={<CustomTooltip />} />
-                      <Legend 
-                        verticalAlign="bottom" 
+                      <Legend
+                        verticalAlign="bottom"
                         height={36}
-                        onClick={(e) => setSelectedCategory(prev => prev === e.value ? null : e.value)}
+                        onClick={(e) => goToEditor(e.value)}
                         wrapperStyle={{ cursor: 'pointer' }}
                       />
                     </PieChart>
@@ -268,38 +297,6 @@ export default function HistoryPage() {
               </div>
             </div>
           </div>
-
-          {/* Detailed Category View */}
-          {selectedCategory && (
-            <div className="bg-white rounded-xl border border-gray-100 overflow-hidden shadow-sm animate-in slide-in-from-bottom-4 duration-300">
-              <div className="px-6 py-4 border-b border-gray-50 flex justify-between items-center bg-gray-50/50">
-                <h3 className="font-bold text-[#1a1a2e]">Details: {selectedCategory}</h3>
-                <span className="text-sm font-medium text-gray-500">${expensesByCategory[selectedCategory]?.toLocaleString()} total</span>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-gray-50/50 text-gray-500 font-medium border-b border-gray-100">
-                    <tr>
-                      <th className="px-6 py-3">Date</th>
-                      <th className="px-6 py-3">Description</th>
-                      <th className="px-6 py-3">Person</th>
-                      <th className="px-6 py-3 text-right">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {filteredExpenses.map((e) => (
-                      <tr key={e.id} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="px-6 py-3 text-gray-600">{e.date}</td>
-                        <td className="px-6 py-3 font-medium text-gray-800">{e.description}</td>
-                        <td className="px-6 py-3 text-gray-600">{e.person}</td>
-                        <td className="px-6 py-3 text-right font-semibold text-gray-900">${e.amount.toLocaleString()}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          )}
         </>
       ) : selectedPeriod ? (
         <div className="bg-white rounded-xl border border-gray-100 p-20 text-center shadow-sm">
