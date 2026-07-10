@@ -8,7 +8,7 @@ class ExpenseBase(BaseModel):
     description: str
     category: str
     person: str
-    month_id: int
+    month_id: Optional[int] = None
 
 class ExpenseCreate(ExpenseBase):
     pass
@@ -26,7 +26,7 @@ class IncomeBase(BaseModel):
     description: str
     category: str
     person: str
-    month_id: int
+    month_id: Optional[int] = None
 
 class IncomeCreate(IncomeBase):
     pass

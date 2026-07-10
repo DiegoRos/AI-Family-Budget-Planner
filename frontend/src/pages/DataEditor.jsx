@@ -21,6 +21,14 @@ import {
 import { PERSONS } from '../api/constants';
 import { useConfig } from '../api/useConfig';
 
+// Local (not UTC) YYYY-MM-DD so the default date isn't tomorrow in negative-UTC
+// zones. Same class of fix as the edge-of-month bug.
+const todayLocal = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 export default function DataEditor() {
   const { data: config } = useConfig();
   const EXPENSE_CATEGORIES = config?.expense_categories ?? [];
@@ -56,7 +64,7 @@ export default function DataEditor() {
   // Staged budget edits for the selected month: { [category]: stringValue }
   const [budgetDraft, setBudgetDraft] = useState({});
   const [newTransaction, setNewTransaction] = useState({
-    date: new Date().toISOString().split('T')[0],
+    date: todayLocal(),
     description: '',
     category: 'Miscellaneous',
     person: 'Ana/Diego',
@@ -136,6 +144,7 @@ export default function DataEditor() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['month', selectedMonthId]);
+      queryClient.invalidateQueries(['months']);
       setEditingId(null);
     },
   });
@@ -153,7 +162,6 @@ export default function DataEditor() {
             description: item.description,
             category: item.category,
             person: item.person,
-            month_id: selectedMonthId,
             [column]: value,
           };
           return client.put(endpoint, data);
@@ -162,6 +170,7 @@ export default function DataEditor() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['month', selectedMonthId]);
+      queryClient.invalidateQueries(['months']);
       setSelectedKeys(new Set());
       setBulkValue('');
     },
@@ -180,14 +189,15 @@ export default function DataEditor() {
   const createTransactionMutation = useMutation({
     mutationFn: async (data) => {
       const endpoint = data.type === 'expense' ? '/api/transactions/expenses/' : '/api/transactions/income/';
-      const res = await client.post(endpoint, { ...data, month_id: selectedMonthId });
+      const res = await client.post(endpoint, data);
       return res.data;
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['month', selectedMonthId]);
+      queryClient.invalidateQueries(['months']);
       setIsAdding(false);
       setNewTransaction({
-        date: new Date().toISOString().split('T')[0],
+        date: todayLocal(),
         description: '',
         category: 'Miscellaneous',
         person: 'Ana/Diego',
@@ -234,7 +244,6 @@ export default function DataEditor() {
         description: editValues.description,
         category: editValues.category,
         person: editValues.person,
-        month_id: selectedMonthId
       }
     });
   };
@@ -708,9 +717,14 @@ export default function DataEditor() {
                     </td>
                     <td className="px-6 py-3">
                       {editingId === t.id ? (
-                        <select 
-                          value={editValues.type} 
-                          onChange={(e) => setEditValues({...editValues, type: e.target.value})}
+                        <select
+                          value={editValues.type}
+                          onChange={(e) => {
+                            const newType = e.target.value;
+                            const list = newType === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+                            const category = list.includes(editValues.category) ? editValues.category : list[0];
+                            setEditValues({ ...editValues, type: newType, category });
+                          }}
                           className="bg-white border border-gray-200 rounded px-2 py-1 outline-none w-full font-medium"
                         >
                           <option value="expense">Expense</option>
@@ -733,6 +747,11 @@ export default function DataEditor() {
                           {(editValues.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map(cat => (
                             <option key={cat} value={cat}>{cat}</option>
                           ))}
+                          {/* Fallback so the select never renders blank when the
+                              current value isn't in the active type's list. */}
+                          {!(editValues.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).includes(editValues.category) && (
+                            <option value={editValues.category}>{editValues.category}</option>
+                          )}
                         </select>
                       ) : (
                         <span className={`px-2 py-1 rounded-full text-[10px] font-bold uppercase ${t.type === 'expense' ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>

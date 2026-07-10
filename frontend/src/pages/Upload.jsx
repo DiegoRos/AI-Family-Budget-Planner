@@ -1,6 +1,6 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { useDropzone } from 'react-dropzone';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { Upload, Loader2, Save, X, Trash2, CheckCircle2, AlertCircle, Plus } from 'lucide-react';
 import client from '../api/client';
 import { PERSONS } from '../api/constants';
@@ -12,11 +12,24 @@ const newLocalId = () =>
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
+// Local (not UTC) YYYY-MM-DD so the default date isn't tomorrow in negative-UTC
+// zones. Same class of fix as the edge-of-month bug.
+const todayLocal = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 export default function UploadPage() {
   const { data: config } = useConfig();
   const EXPENSE_CATEGORIES = config?.expense_categories ?? [];
   const INCOME_CATEGORIES = config?.income_categories ?? [];
   const ALL_CATEGORIES = [...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES];
+
+  // Single source of truth for a row's type: use an explicit `type` when set,
+  // otherwise derive from the category. Shared by the Type select value and the
+  // Category option list so the two can never diverge.
+  const rowType = (t) => t.type || (EXPENSE_CATEGORIES.includes(t.category) ? 'expense' : 'income');
 
   const [extractedTransactions, setExtractedTransactions] = useState([]);
   // Per-file progress: { id, name, status: 'queued'|'extracting'|'done'|'error', note, count, error }
@@ -30,15 +43,6 @@ export default function UploadPage() {
   const isExtracting = fileStatuses.some(
     (f) => f.status === 'queued' || f.status === 'extracting'
   );
-
-  // Fetch months to map year/month to month_id
-  const { data: months } = useQuery({
-    queryKey: ['months'],
-    queryFn: async () => {
-      const res = await client.get('/api/months/');
-      return res.data;
-    },
-  });
 
   const extractOne = useCallback(async (file, id) => {
     setFileStatuses(prev =>
@@ -56,6 +60,9 @@ export default function UploadPage() {
       const transactionsWithId = (res.data.transactions || []).map((t) => ({
         ...t,
         localId: newLocalId(),
+        // Pin an explicit type so the Type select and Category list agree from
+        // the first render (extracted rows arrive with type undefined).
+        type: t.type || (EXPENSE_CATEGORIES.includes(t.category) ? 'expense' : 'income'),
       }));
 
       // Append so multiple files accumulate into one combined review table.
@@ -113,8 +120,18 @@ export default function UploadPage() {
   });
 
   const handleUpdateTransaction = (localId, field, value) => {
-    setExtractedTransactions(prev => 
-      prev.map(t => t.localId === localId ? { ...t, [field]: value } : t)
+    setExtractedTransactions(prev =>
+      prev.map(t => {
+        if (t.localId !== localId) return t;
+        // When Type flips, drop a category that no longer belongs to the new
+        // type's list so the Category select can't linger on a stale value.
+        if (field === 'type') {
+          const list = value === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+          const category = list.includes(t.category) ? t.category : list[0];
+          return { ...t, type: value, category };
+        }
+        return { ...t, [field]: value };
+      })
     );
   };
 
@@ -155,44 +172,21 @@ export default function UploadPage() {
     if (extractedTransactions.length === 0) return;
 
     setSaveStatus({ loading: true, success: false, error: null });
-    
+
     try {
-      const currentMonths = [...(months || [])];
-      
       for (const t of extractedTransactions) {
-        const dateObj = new Date(t.date);
-        const year = dateObj.getFullYear();
-        const month = dateObj.getMonth() + 1; // 1-12
+        // The backend derives (and auto-creates) the month from the date, so we
+        // send no month_id. Endpoint follows the row's resolved type.
+        const endpoint = rowType(t) === 'income'
+          ? '/api/transactions/income/'
+          : '/api/transactions/expenses/';
 
-        // Find or create month
-        let monthData = currentMonths.find(m => m.year === year && m.month === month);
-        
-        if (!monthData) {
-          const res = await client.post('/api/months/', {
-            year,
-            month,
-            is_frozen: false,
-            start_balance: 0,
-            end_balance: 0
-          });
-          monthData = res.data;
-          currentMonths.push(monthData);
-        }
-
-        if (monthData.is_frozen) {
-          throw new Error(`Month ${year}-${month} is frozen. Please unfreeze it first.`);
-        }
-
-        const isExpense = EXPENSE_CATEGORIES.includes(t.category);
-        const endpoint = isExpense ? '/api/transactions/expenses/' : '/api/transactions/income/';
-        
         await client.post(endpoint, {
           date: t.date,
           amount: parseFloat(t.amount),
           description: t.description,
           category: t.category,
           person: t.person,
-          month_id: monthData.id
         });
       }
 
@@ -203,7 +197,11 @@ export default function UploadPage() {
       queryClient.invalidateQueries(['months']);
     } catch (err) {
       console.error('Save failed', err);
-      setSaveStatus({ loading: false, success: false, error: err.response?.data?.detail || err.message });
+      // A frozen target month surfaces from the backend as a 403.
+      const message = err.response?.status === 403
+        ? (err.response?.data?.detail || 'That month is frozen. Unfreeze it in History first.')
+        : (err.response?.data?.detail || err.message);
+      setSaveStatus({ loading: false, success: false, error: message });
     }
   };
 
@@ -242,8 +240,8 @@ export default function UploadPage() {
           <button 
             onClick={() => setExtractedTransactions([{
               localId: newLocalId(),
-              date: new Date().toISOString().split('T')[0],
-              description: '', 
+              date: todayLocal(),
+              description: '',
               category: 'Miscellaneous', 
               person: 'Ana/Diego', 
               amount: 0, 
@@ -306,8 +304,8 @@ export default function UploadPage() {
                   ...prev,
                   {
                     localId: newLocalId(),
-                    date: new Date().toISOString().split('T')[0],
-                    description: '', 
+                    date: todayLocal(),
+                    description: '',
                     category: 'Miscellaneous', 
                     person: 'Ana/Diego', 
                     amount: 0, 
@@ -433,8 +431,8 @@ export default function UploadPage() {
                       />
                     </td>
                     <td className="px-6 py-3">
-                      <select 
-                        value={t.type || (EXPENSE_CATEGORIES.includes(t.category) ? 'expense' : 'income')} 
+                      <select
+                        value={rowType(t)}
                         onChange={(e) => handleUpdateTransaction(t.localId, 'type', e.target.value)}
                         className="bg-transparent border-b border-transparent focus:border-gray-300 outline-none w-full appearance-none cursor-pointer font-medium"
                       >
@@ -448,11 +446,11 @@ export default function UploadPage() {
                         onChange={(e) => handleUpdateTransaction(t.localId, 'category', e.target.value)}
                         className="bg-transparent border-b border-transparent focus:border-gray-300 outline-none w-full appearance-none cursor-pointer"
                       >
-                        {(t.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map(cat => (
+                        {(rowType(t) === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).map(cat => (
                           <option key={cat} value={cat}>{cat}</option>
                         ))}
                         {/* Fallback for mixed lists */}
-                        {! (t.type === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).includes(t.category) && (
+                        {! (rowType(t) === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES).includes(t.category) && (
                           <option value={t.category}>{t.category}</option>
                         )}
                       </select>

@@ -4,6 +4,7 @@ from typing import List
 from database.db import get_db
 from database import models
 from schemas import schemas
+from routers.months import get_or_create_month_for_date
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -18,8 +19,9 @@ def check_frozen(month_id: int, db: Session):
 # Expenses
 @router.post("/expenses/", response_model=schemas.Expense)
 def create_expense(expense: schemas.ExpenseCreate, db: Session = Depends(get_db)):
-    check_frozen(expense.month_id, db)
-    db_expense = models.Expense(**expense.dict())
+    m = get_or_create_month_for_date(expense.date, db)
+    check_frozen(m.id, db)
+    db_expense = models.Expense(**expense.dict(exclude={'month_id'}), month_id=m.id)
     db.add(db_expense)
     db.commit()
     db.refresh(db_expense)
@@ -30,10 +32,12 @@ def update_expense(expense_id: int, expense: schemas.ExpenseCreate, db: Session 
     db_expense = db.query(models.Expense).filter(models.Expense.id == expense_id).first()
     if not db_expense:
         raise HTTPException(status_code=404, detail="Expense not found")
+    m = get_or_create_month_for_date(expense.date, db)
     check_frozen(db_expense.month_id, db)
-    check_frozen(expense.month_id, db)
-    for key, value in expense.dict().items():
+    check_frozen(m.id, db)
+    for key, value in expense.dict(exclude={'month_id'}).items():
         setattr(db_expense, key, value)
+    db_expense.month_id = m.id
     db.commit()
     db.refresh(db_expense)
     return db_expense
@@ -51,8 +55,9 @@ def delete_expense(expense_id: int, db: Session = Depends(get_db)):
 # Income
 @router.post("/income/", response_model=schemas.Income)
 def create_income(income: schemas.IncomeCreate, db: Session = Depends(get_db)):
-    check_frozen(income.month_id, db)
-    db_income = models.Income(**income.dict())
+    m = get_or_create_month_for_date(income.date, db)
+    check_frozen(m.id, db)
+    db_income = models.Income(**income.dict(exclude={'month_id'}), month_id=m.id)
     db.add(db_income)
     db.commit()
     db.refresh(db_income)
@@ -63,10 +68,12 @@ def update_income(income_id: int, income: schemas.IncomeCreate, db: Session = De
     db_income = db.query(models.Income).filter(models.Income.id == income_id).first()
     if not db_income:
         raise HTTPException(status_code=404, detail="Income not found")
+    m = get_or_create_month_for_date(income.date, db)
     check_frozen(db_income.month_id, db)
-    check_frozen(income.month_id, db)
-    for key, value in income.dict().items():
+    check_frozen(m.id, db)
+    for key, value in income.dict(exclude={'month_id'}).items():
         setattr(db_income, key, value)
+    db_income.month_id = m.id
     db.commit()
     db.refresh(db_income)
     return db_income
