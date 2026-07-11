@@ -7,8 +7,12 @@ export default function CategoryRow({ category, planned, actual, type = 'expense
 
   const diffColor = isOverBudget ? 'text-red-500' : isUnderBudget ? 'text-green-600' : 'text-gray-400';
 
+  // A category with no budget (planned 0) but actual spending has no meaningful
+  // percentage — show a full bar in the accent navy rather than an empty track.
+  const noBudget = planned <= 0 && actual > 0;
   const percentage = planned > 0 ? (actual / planned) * 100 : 0;
-  const barColor = isOverBudget ? 'bg-red-500' : 'bg-[#334960]';
+  const barWidth = noBudget ? 100 : Math.min(percentage, 100);
+  const barColor = noBudget ? 'bg-[#334960]' : isOverBudget ? 'bg-red-500' : 'bg-[#334960]';
 
   const clickable = typeof onClick === 'function';
 
@@ -37,7 +41,7 @@ export default function CategoryRow({ category, planned, actual, type = 'expense
         <div className="flex-1 h-1.5 bg-gray-100 rounded-full overflow-hidden">
           <div 
             className={`h-full transition-all duration-500 ease-out ${barColor}`}
-            style={{ width: `${Math.min(percentage, 100)}%` }}
+            style={{ width: `${barWidth}%` }}
           />
         </div>
         <span className={`text-xs font-bold w-16 text-right ${diffColor}`}>

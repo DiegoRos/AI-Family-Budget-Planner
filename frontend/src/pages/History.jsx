@@ -145,6 +145,16 @@ export default function HistoryPage() {
 
   const chartData = Object.entries(expensesByCategory).map(([name, value]) => ({ name, value }));
 
+  // Categories that have actual spending but no budget row for this month
+  // (e.g. months seeded before a category was added to the budget config, or an
+  // LLM-assigned category outside it). Render them alongside the budgeted rows
+  // so the Planned vs Actual table reconciles with the Expenses total.
+  const expenseBudgets = budgets.filter(b => b.type === 'expense');
+  const budgetedCategories = new Set(expenseBudgets.map(b => b.category));
+  const unbudgetedCategories = Object.keys(expensesByCategory)
+    .filter(cat => !budgetedCategories.has(cat))
+    .sort();
+
   // Jump to the Data Editor for this month, pre-filtered to the clicked category
   // (and the active person filter, if any).
   const goToEditor = (category) => {
@@ -234,12 +244,22 @@ export default function HistoryPage() {
             <div className="bg-white p-6 rounded-lg border border-gray-100">
               <h2 className="text-lg font-semibold mb-6">Planned vs Actual</h2>
               <div className="space-y-1">
-                {budgets.filter(b => b.type === 'expense').map(budget => (
+                {expenseBudgets.map(budget => (
                   <CategoryRow
                     key={budget.id}
                     category={budget.category}
                     planned={budget.planned_amount}
                     actual={expensesByCategory[budget.category] || 0}
+                    type="expense"
+                    onClick={goToEditor}
+                  />
+                ))}
+                {unbudgetedCategories.map(cat => (
+                  <CategoryRow
+                    key={`unbudgeted-${cat}`}
+                    category={cat}
+                    planned={0}
+                    actual={expensesByCategory[cat]}
                     type="expense"
                     onClick={goToEditor}
                   />
