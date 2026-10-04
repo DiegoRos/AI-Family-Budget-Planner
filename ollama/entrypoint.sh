@@ -15,9 +15,10 @@ for i in {1..60}; do
   sleep 1
 done
 
-# Pull the model
-echo "Pulling deepseek-r1:14b model..."
-ollama pull deepseek-r1:14b
+# Pull the model (same OLLAMA_MODEL the backend uses)
+MODEL="${OLLAMA_MODEL:-gemma4:12b}"
+echo "Pulling $MODEL model..."
+ollama pull "$MODEL"
 
 echo "Model ready. Ollama is running."
 

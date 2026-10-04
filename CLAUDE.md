@@ -2,14 +2,14 @@ NEVER DELETE THE DATABASE
 
 # Familia Budget Tracker
 
-A local, Dockerized React + Python webapp to track monthly budgets and automatically extract expenses from uploaded documents using a local LLM (Ollama + DeepSeek-R1). This replaces a manual Excel system, ensuring all sensitive data is processed locally. 
+A local, Dockerized React + Python webapp to track monthly budgets and automatically extract expenses from uploaded documents using a local LLM (Ollama + Gemma 4). This replaces a manual Excel system, ensuring all sensitive data is processed locally. 
 
 ## Tech Stack
 
 - **Frontend:** React (Vite) with Tailwind CSS
 - **Backend:** Python (FastAPI)
 - **Database:** SQLite
-- **LLM Engine:** Ollama running `deepseek-r1:14b` (local only, no external APIs)
+- **LLM Engine:** Ollama running `gemma4:12b` (set via `OLLAMA_MODEL`; local only, no external APIs)
 - **Orchestration:** Docker & Docker Compose
 
 ## Repository Structure
@@ -37,7 +37,7 @@ familia-budget/
 │   │   ├── config.py          ← /api/config: category lists + base budget (single source)
 │   │   └── export.py          ← Excel/CSV download endpoints
 │   ├── services/
-│   │   └── llm_extractor.py   ← LangChain + DeepSeek-R1 pipeline
+│   │   └── llm_extractor.py   ← LangChain (ChatOllama) + Gemma 4 pipeline
 │   └── schemas/
 │       └── schemas.py         ← Pydantic request/response models
 │
@@ -64,7 +64,7 @@ familia-budget/
 │           └── Export.jsx     ← Download selected view or full year
 │
 └── ollama/
-    └── Modelfile              ← DeepSeek-R1 pull config (optional)
+    └── Modelfile              ← Ollama image + entrypoint that pulls $OLLAMA_MODEL
 ```
 
 ## Database Schema (SQLite)
@@ -133,7 +133,8 @@ Paycheck Ana, Paycheck Diego, Passive Income, Bonus Ana, Bonus Diego, Other
 
 ## Implementation Notes & Gotchas
 
-- **DeepSeek-R1 `<think>` blocks:** The reasoning model prepends `<think>...</think>`. **CRITICAL:** Strip these before JSON parsing: `re.sub(r"<think>.*?</think>", "", raw_output, flags=re.DOTALL).strip()`
+- **Structured output, thinking off:** `llm_extractor.py` uses `ChatOllama` (`langchain-ollama`) with `format=<JSON schema>` so Ollama constrains generation to valid JSON (`{"transactions": [...]}` for extraction, `{"is_transaction_page": bool}` for the page classifier), and `reasoning=False` to disable Gemma 4's thinking. `<think>...</think>` stripping is kept only as a safety net in case a reasoning model is set via `OLLAMA_MODEL`.
+- **Model selection:** `OLLAMA_MODEL` (default `gemma4:12b`) is read by both the backend and `ollama/entrypoint.sh` (which pulls it on startup); docker-compose passes it to the ollama service. Change models in `.env` only.
 - **LLM Extraction:** The model should extract month of the transaction, expected category (Miscellaneous as fallback), and person (mark as "Ana/Diego" if no clear name).
 - **Frozen Months:** Backend returns `403 Forbidden` on PUT/DELETE to frozen month transactions. Support toggling freeze/unfreeze for corrections.
 - **SQLite Concurrency:** Use `check_same_thread=False` in SQLAlchemy.
@@ -154,9 +155,9 @@ Paycheck Ana, Paycheck Diego, Passive Income, Bonus Ana, Bonus Diego, Other
 
 Before running the app, ensure you have installed:
 - **Docker** (with Docker Compose)
-- **Ollama** with the `deepseek-r1:14b` model pre-pulled
+- **Ollama** with the `gemma4:12b` model pre-pulled
   ```bash
-  ollama pull deepseek-r1:14b
+  ollama pull gemma4:12b
   ```
 
 > **Note on Ollama:** The app expects Ollama to be running and accessible at `http://localhost:11434` (configurable via `OLLAMA_HOST`). If you run Ollama in Docker, the backend service will connect to it at `http://ollama:11434` (internal Docker network).
@@ -172,12 +173,14 @@ Before running the app, ensure you have installed:
    ```env
    DATABASE_URL=sqlite:///./data/budget.db
    OLLAMA_HOST=http://localhost:11434
+   OLLAMA_MODEL=gemma4:12b
    VITE_API_URL=http://localhost:8000
    BUDGET_CONFIG={"expense":{...},"income":{...}}
    ```
 
    - `DATABASE_URL`: SQLite database path (auto-created in `backend/data/`)
    - `OLLAMA_HOST`: Ollama API endpoint (for local Ollama, use `http://localhost:11434`)
+   - `OLLAMA_MODEL`: Ollama model tag used for extraction (default `gemma4:12b`); the ollama container pulls it on startup
    - `VITE_API_URL`: Frontend's API base URL (for local dev, use `http://localhost:8000`)
    - `BUDGET_CONFIG`: JSON of category → base planned amount (`expense`/`income`). Drives `/api/config` and the per-month budget auto-seed; falls back to `BASE_BUDGET_TARGETS` in `seed.py` if unset. Reaches the backend container via `env_file: .env` in `docker-compose.yml`.
 
@@ -269,7 +272,7 @@ If you prefer running services locally without Docker:
    ```
    In a separate terminal, pull the model:
    ```bash
-   ollama pull deepseek-r1:14b
+   ollama pull gemma4:12b
    ```
 
 5. Start the backend:

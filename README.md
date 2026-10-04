@@ -6,7 +6,7 @@ A local, Dockerized web app for tracking monthly household budgets and automatic
 
 - **Frontend:** React (Vite) + Tailwind CSS + React Query
 - **Backend:** Python (FastAPI) + SQLite
-- **LLM:** Ollama running `deepseek-r1:14b` — fully local, no external APIs
+- **LLM:** Ollama running `gemma4:12b` (configurable via `OLLAMA_MODEL`) — fully local, no external APIs
 
 ## Features
 
@@ -24,7 +24,7 @@ A local, Dockerized web app for tracking monthly household budgets and automatic
 - Docker + Docker Compose
 - Ollama with the model pre-pulled:
   ```bash
-  ollama pull deepseek-r1:14b
+  ollama pull gemma4:12b
   ```
 
 ### Start

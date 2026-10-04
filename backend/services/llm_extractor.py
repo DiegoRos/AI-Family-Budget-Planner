@@ -1,9 +1,11 @@
 import re
 import json
 import difflib
-from langchain_community.llms import Ollama
+from langchain_ollama import ChatOllama
 from typing import List, Dict, Any
 import os
+
+DEFAULT_MODEL = "gemma4:12b"
 
 
 def _load_categories():
@@ -24,20 +26,53 @@ EXPENSE_CATEGORIES, INCOME_CATEGORIES = _load_categories()
 ALL_CATEGORIES = EXPENSE_CATEGORIES + INCOME_CATEGORIES
 PERSONS = ["Ana", "Diego", "Ana/Diego"]
 
+# JSON schemas passed to Ollama's `format` option. Generation is constrained
+# token-by-token to match, so the output is always syntactically valid JSON.
+TRANSACTIONS_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "transactions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "date": {"type": "string"},
+                    "amount": {"type": "number"},
+                    "description": {"type": "string"},
+                    "category": {"type": "string", "enum": list(dict.fromkeys(ALL_CATEGORIES))},
+                    "person": {"type": "string", "enum": PERSONS},
+                },
+                "required": ["date", "amount", "description", "category", "person"],
+            },
+        }
+    },
+    "required": ["transactions"],
+}
+
+PAGE_CLASSIFIER_SCHEMA = {
+    "type": "object",
+    "properties": {"is_transaction_page": {"type": "boolean"}},
+    "required": ["is_transaction_page"],
+}
+
+
 class LLMExtractor:
-    def __init__(self, model_name: str = "deepseek-r1:14b"):
+    def __init__(self, model_name: str = None):
+        model_name = model_name or os.getenv("OLLAMA_MODEL", DEFAULT_MODEL)
         base_url = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-        # Increase num_ctx for long documents and num_predict for long JSON outputs
-        self.llm = Ollama(
-            model=model_name, 
+        common = dict(
+            model=model_name,
             base_url=base_url,
-            num_ctx=16384,
-            num_predict=8192,
             temperature=0.1,
-            timeout=300 # 5 minutes
+            reasoning=False,  # Gemma 4 thinking off: faster, and keeps JSON in the reply
+            client_kwargs={"timeout": 300},  # 5 minutes
         )
+        # Increase num_ctx for long documents and num_predict for long JSON outputs
+        self.llm = ChatOllama(**common, num_ctx=16384, num_predict=8192, format=TRANSACTIONS_SCHEMA)
+        self.classifier_llm = ChatOllama(**common, num_ctx=4096, num_predict=32, format=PAGE_CLASSIFIER_SCHEMA)
 
     def _strip_think_blocks(self, text: str) -> str:
+        # Safety net in case a reasoning model is configured via OLLAMA_MODEL.
         return re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL).strip()
 
     def _fuzzy_match_category(self, category: str) -> str:
@@ -60,20 +95,16 @@ class LLMExtractor:
         transactions (purchases, charges, payments, deposits) — as opposed to
         an account summary, marketing, fees schedule, or legal disclosure page.
 
-        Answer with a SINGLE word: YES or NO. No explanation.
+        Respond with JSON: {{"is_transaction_page": true}} or {{"is_transaction_page": false}}.
 
         Page text (start):
         \"\"\"{snippet}\"\"\"
         """
         try:
-            raw_output = self.llm.invoke(prompt)
-            cleaned = self._strip_think_blocks(raw_output).upper()
-            # Keep the page unless the model clearly says NO without a YES.
-            if "YES" in cleaned:
-                return True
-            if "NO" in cleaned:
-                return False
-            return True  # ambiguous answer -> fail open, keep the page
+            raw_output = self.classifier_llm.invoke(prompt).content
+            data = json.loads(self._strip_think_blocks(raw_output))
+            # Keep the page unless the model clearly says it is not one.
+            return data.get("is_transaction_page") is not False
         except Exception as e:
             print(f"Error during page classification: {e}")
             return True
@@ -102,35 +133,26 @@ class LLMExtractor:
         Document Text:
         \"\"\"{text}\"\"\"
 
-        Return ONLY a JSON list of objects. No introductory text, no explanations, no markdown code blocks.
-        Example format:
-        [
+        Return a JSON object with a "transactions" list. Example format:
+        {{"transactions": [
             {{"date": "2024-01-15", "amount": 50.0, "description": "Grocery Store", "category": "Groceries", "person": "Ana"}},
             ...
-        ]
+        ]}}
         """
 
         cleaned_output = ""
         try:
             # We use invoke() which is stateless in Ollama by default.
-            raw_output = self.llm.invoke(prompt)
+            raw_output = self.llm.invoke(prompt).content
             cleaned_output = self._strip_think_blocks(raw_output)
-            
-            # Use regex to find the JSON array in case the LLM adds markdown or chatter.
-            # We look for the FIRST [ and the LAST ]
-            start_idx = cleaned_output.find('[')
-            end_idx = cleaned_output.rfind(']')
-            
-            if start_idx != -1 and end_idx != -1:
-                json_str = cleaned_output[start_idx:end_idx+1]
-                data = json.loads(json_str)
-                
-                if isinstance(data, list):
-                    for item in data:
-                        item['category'] = self._fuzzy_match_category(item.get('category', 'Miscellaneous'))
-                        if item.get('person') not in PERSONS:
-                            item['person'] = "Ana/Diego"
-                    return data
+            data = json.loads(cleaned_output).get("transactions", [])
+
+            if isinstance(data, list):
+                for item in data:
+                    item['category'] = self._fuzzy_match_category(item.get('category', 'Miscellaneous'))
+                    if item.get('person') not in PERSONS:
+                        item['person'] = "Ana/Diego"
+                return data
         except Exception as e:
             print(f"Error during LLM extraction: {e}")
             # Log the first 100 chars of output to help debugging
