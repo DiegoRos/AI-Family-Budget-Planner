@@ -134,7 +134,8 @@ Paycheck Ana, Paycheck Diego, Passive Income, Bonus Ana, Bonus Diego, Other
 ## Implementation Notes & Gotchas
 
 - **Structured output, thinking off:** `llm_extractor.py` uses `ChatOllama` (`langchain-ollama`) with `format=<JSON schema>` so Ollama constrains generation to valid JSON (`{"transactions": [...]}` for extraction, `{"is_transaction_page": bool}` for the page classifier), and `reasoning=False` to disable Gemma 4's thinking. `<think>...</think>` stripping is kept only as a safety net in case a reasoning model is set via `OLLAMA_MODEL`.
-- **Model selection:** `OLLAMA_MODEL` (default `gemma4:12b`) is read by both the backend and `ollama/entrypoint.sh` (which pulls it on startup); docker-compose passes it to the ollama service. Change models in `.env` only.
+- **Model selection:** `OLLAMA_MODEL` (default `gemma4:12b`) is read by both the backend and `ollama/entrypoint.sh` (which pulls it on startup); docker-compose passes it to the ollama service. Change models in `.env` only. *Gotcha:* newer models need a recent Ollama (`gemma4` fails on 0.23 with "unknown model architecture"); the ollama service builds with `pull: true` so `ollama/ollama:latest` is refreshed on `--build`.
+- **Chunked extraction:** `extract_from_pages` sends selected pages to the LLM in chunks of ~`CHUNK_CHAR_BUDGET` chars (never splitting a page). A whole statement in one call overflows `num_ctx` and the JSON reply gets cut off. LLM failures (including `done_reason == "length"` truncation) raise `ExtractionError` → `502` with a detail message; never return `[]` silently.
 - **LLM Extraction:** The model should extract month of the transaction, expected category (Miscellaneous as fallback), and person (mark as "Ana/Diego" if no clear name).
 - **Frozen Months:** Backend returns `403 Forbidden` on PUT/DELETE to frozen month transactions. Support toggling freeze/unfreeze for corrections.
 - **SQLite Concurrency:** Use `check_same_thread=False` in SQLAlchemy.

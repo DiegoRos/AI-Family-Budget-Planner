@@ -25,7 +25,9 @@ services:
       - VITE_API_URL=http://localhost:8000
 
   ollama:
-    build: ./ollama
+    build:
+      context: ./ollama
+      pull: true  # always refresh ollama/ollama:latest; a stale base can't load newer models (e.g. gemma4)
     environment:
       - OLLAMA_MODEL=${OLLAMA_MODEL:-gemma4:12b}
     volumes:

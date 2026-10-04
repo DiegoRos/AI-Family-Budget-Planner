@@ -1,6 +1,6 @@
 import asyncio
 from fastapi import APIRouter, UploadFile, File, HTTPException
-from services.llm_extractor import LLMExtractor
+from services.llm_extractor import LLMExtractor, ExtractionError
 from services.page_filter import select_transaction_pages
 import fitz  # PyMuPDF
 import pytesseract
@@ -59,11 +59,14 @@ async def extract_from_file(file: UploadFile = File(...)):
         select_transaction_pages, pages, extractor.is_transaction_page
     )
 
-    combined_text = "\n".join(pages[i] for i in selection.selected_indices)
+    selected_pages = [pages[i] for i in selection.selected_indices]
 
-    transactions = await asyncio.to_thread(
-        extractor.extract_transactions, combined_text
-    )
+    try:
+        transactions = await asyncio.to_thread(
+            extractor.extract_from_pages, selected_pages
+        )
+    except ExtractionError as e:
+        raise HTTPException(status_code=502, detail=f"LLM extraction failed: {e}")
 
     return {
         "transactions": transactions,

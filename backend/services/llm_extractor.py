@@ -26,6 +26,11 @@ EXPENSE_CATEGORIES, INCOME_CATEGORIES = _load_categories()
 ALL_CATEGORIES = EXPENSE_CATEGORIES + INCOME_CATEGORIES
 PERSONS = ["Ana", "Diego", "Ana/Diego"]
 
+# Max characters of document text per extraction call (~2 statement pages).
+# Leaves most of num_ctx for the JSON reply, which is several times larger
+# than the source text per transaction.
+CHUNK_CHAR_BUDGET = 4500
+
 # JSON schemas passed to Ollama's `format` option. Generation is constrained
 # token-by-token to match, so the output is always syntactically valid JSON.
 TRANSACTIONS_SCHEMA = {
@@ -54,6 +59,10 @@ PAGE_CLASSIFIER_SCHEMA = {
     "properties": {"is_transaction_page": {"type": "boolean"}},
     "required": ["is_transaction_page"],
 }
+
+
+class ExtractionError(Exception):
+    """The LLM call failed (Ollama down, model failed to load, bad output)."""
 
 
 class LLMExtractor:
@@ -143,8 +152,11 @@ class LLMExtractor:
         cleaned_output = ""
         try:
             # We use invoke() which is stateless in Ollama by default.
-            raw_output = self.llm.invoke(prompt).content
-            cleaned_output = self._strip_think_blocks(raw_output)
+            response = self.llm.invoke(prompt)
+            cleaned_output = self._strip_think_blocks(response.content)
+            if response.response_metadata.get("done_reason") == "length":
+                # Hit num_ctx/num_predict: the JSON is cut off mid-list.
+                raise ExtractionError("model output was truncated (context limit reached)")
             data = json.loads(cleaned_output).get("transactions", [])
 
             if isinstance(data, list):
@@ -155,8 +167,37 @@ class LLMExtractor:
                 return data
         except Exception as e:
             print(f"Error during LLM extraction: {e}")
-            # Log the first 100 chars of output to help debugging
+            # Log the first 200 chars of output to help debugging
             print(f"Raw output (truncated): {cleaned_output[:200]}...")
-            return []
-        
+            # Surface the failure instead of returning [], which the UI would
+            # show as a successful extraction with zero transactions.
+            raise ExtractionError(str(e)) from e
+
         return []
+
+    def extract_from_pages(self, pages: List[str]) -> List[Dict[str, Any]]:
+        """Extract transactions from several pages, a few pages per LLM call.
+
+        A long statement in a single call overflows num_ctx (prompt + JSON
+        reply), and the reply gets cut off after the first few dozen rows.
+        Chunks never split a page, so a single oversized page goes alone.
+        """
+        transactions: List[Dict[str, Any]] = []
+        for chunk in _chunk_pages(pages, CHUNK_CHAR_BUDGET):
+            transactions.extend(self.extract_transactions(chunk))
+        return transactions
+
+
+def _chunk_pages(pages: List[str], budget: int) -> List[str]:
+    chunks: List[str] = []
+    current: List[str] = []
+    size = 0
+    for page in pages:
+        if current and size + len(page) > budget:
+            chunks.append("\n".join(current))
+            current, size = [], 0
+        current.append(page)
+        size += len(page)
+    if current:
+        chunks.append("\n".join(current))
+    return chunks

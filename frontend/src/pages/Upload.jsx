@@ -281,7 +281,7 @@ export default function UploadPage() {
               <span className="font-medium text-gray-700 truncate flex-1">{f.name}</span>
               <span className="text-gray-400 text-xs text-right shrink-0">
                 {f.status === 'queued' && 'Queued'}
-                {f.status === 'extracting' && 'DeepSeek-R1 analyzing…'}
+                {f.status === 'extracting' && 'Analyzing…'}
                 {f.status === 'done' && (
                   <>
                     {f.count} found{f.note ? ` · ${f.note}` : ''}
