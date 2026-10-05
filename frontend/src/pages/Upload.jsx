@@ -44,6 +44,22 @@ export default function UploadPage() {
     (f) => f.status === 'queued' || f.status === 'extracting'
   );
 
+  // Running totals per type, for a quick check against the source document.
+  // Amounts are raw input strings while editing, so blanks/partials count as 0.
+  const sumByType = (rows) => rows.reduce(
+    (acc, t) => {
+      acc[rowType(t)] += parseFloat(t.amount) || 0;
+      return acc;
+    },
+    { expense: 0, income: 0 }
+  );
+  const totals = sumByType(extractedTransactions);
+  const hasIncomeRows = extractedTransactions.some(t => rowType(t) === 'income');
+  const hasExpenseRows = extractedTransactions.some(t => rowType(t) === 'expense');
+  const selectedTotals = sumByType(extractedTransactions.filter(t => selectedIds.has(t.localId)));
+  const formatAmount = (n) =>
+    `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
   const extractOne = useCallback(async (file, id) => {
     setFileStatuses(prev =>
       prev.map(f => f.id === id ? { ...f, status: 'extracting' } : f)
@@ -119,19 +135,21 @@ export default function UploadPage() {
     multiple: true
   });
 
+  // Set one field on a row. When Type flips, drop a category that no longer
+  // belongs to the new type's list so the Category select can't linger on a
+  // stale value. Shared by per-row edits and bulk apply.
+  const withField = (t, field, value) => {
+    if (field === 'type') {
+      const list = value === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+      const category = list.includes(t.category) ? t.category : list[0];
+      return { ...t, type: value, category };
+    }
+    return { ...t, [field]: value };
+  };
+
   const handleUpdateTransaction = (localId, field, value) => {
     setExtractedTransactions(prev =>
-      prev.map(t => {
-        if (t.localId !== localId) return t;
-        // When Type flips, drop a category that no longer belongs to the new
-        // type's list so the Category select can't linger on a stale value.
-        if (field === 'type') {
-          const list = value === 'income' ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
-          const category = list.includes(t.category) ? t.category : list[0];
-          return { ...t, type: value, category };
-        }
-        return { ...t, [field]: value };
-      })
+      prev.map(t => t.localId === localId ? withField(t, field, value) : t)
     );
   };
 
@@ -162,10 +180,16 @@ export default function UploadPage() {
   const handleApplyBulk = () => {
     if (selectedIds.size === 0 || !bulkValue) return;
     setExtractedTransactions(prev =>
-      prev.map(t => selectedIds.has(t.localId) ? { ...t, [bulkColumn]: bulkValue } : t)
+      prev.map(t => selectedIds.has(t.localId) ? withField(t, bulkColumn, bulkValue) : t)
     );
     setSelectedIds(new Set());
     setBulkValue('');
+  };
+
+  // Only drops rows from the review table; nothing has been saved yet.
+  const handleDeleteSelected = () => {
+    setExtractedTransactions(prev => prev.filter(t => !selectedIds.has(t.localId)));
+    setSelectedIds(new Set());
   };
 
   const handleSaveAll = async () => {
@@ -337,12 +361,20 @@ export default function UploadPage() {
             <div className="flex flex-wrap items-center gap-3 px-6 py-3 bg-[#334960]/5 border-b border-gray-100 text-sm">
               <span className="font-medium text-[#334960]">{selectedIds.size} selected</span>
               <span className="text-gray-400">·</span>
+              <span className="text-gray-600 tabular-nums">
+                {selectedTotals.expense > 0 && formatAmount(selectedTotals.expense)}
+                {selectedTotals.expense > 0 && selectedTotals.income > 0 && ' expenses · '}
+                {selectedTotals.income > 0 && `${formatAmount(selectedTotals.income)} income`}
+                {selectedTotals.expense === 0 && selectedTotals.income === 0 && formatAmount(0)}
+              </span>
+              <span className="text-gray-400">·</span>
               <span className="text-gray-500">Set</span>
               <select
                 value={bulkColumn}
                 onChange={(e) => setBulkColumn(e.target.value)}
                 className="bg-white border border-gray-200 rounded px-2 py-1 outline-none font-medium"
               >
+                <option value="type">Type</option>
                 <option value="person">Person</option>
                 <option value="category">Category</option>
               </select>
@@ -353,7 +385,12 @@ export default function UploadPage() {
                 className="bg-white border border-gray-200 rounded px-2 py-1 outline-none"
               >
                 <option value="" disabled>Choose…</option>
-                {(bulkColumn === 'person' ? PERSONS : ALL_CATEGORIES).map((opt) => (
+                {bulkColumn === 'type' ? (
+                  <>
+                    <option value="expense">Expense</option>
+                    <option value="income">Income</option>
+                  </>
+                ) : (bulkColumn === 'person' ? PERSONS : ALL_CATEGORIES).map((opt) => (
                   <option key={opt} value={opt}>{opt}</option>
                 ))}
               </select>
@@ -369,6 +406,12 @@ export default function UploadPage() {
                 className="text-gray-500 hover:text-gray-700 transition-colors"
               >
                 Clear
+              </button>
+              <button
+                onClick={handleDeleteSelected}
+                className="ml-auto text-gray-500 hover:text-red-500 transition-colors flex items-center gap-1"
+              >
+                <Trash2 className="w-4 h-4" /> Delete selected
               </button>
             </div>
           )}
@@ -489,6 +532,32 @@ export default function UploadPage() {
                   </tr>
                 ))}
               </tbody>
+              <tfoot className="bg-gray-50 border-t border-gray-200 text-gray-800">
+                {/* One "Total" row for a single-type table; split by type when mixed
+                    so income doesn't net against expenses. */}
+                {(hasExpenseRows || !hasIncomeRows) && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-3 text-right font-semibold">
+                      {hasIncomeRows ? 'Total expenses' : 'Total'}
+                    </td>
+                    <td className="px-6 py-3 text-right font-semibold tabular-nums">
+                      {formatAmount(totals.expense)}
+                    </td>
+                    <td className="px-6 py-3 w-10"></td>
+                  </tr>
+                )}
+                {hasIncomeRows && (
+                  <tr>
+                    <td colSpan={6} className="px-6 py-3 text-right font-semibold">
+                      {hasExpenseRows ? 'Total income' : 'Total'}
+                    </td>
+                    <td className="px-6 py-3 text-right font-semibold tabular-nums">
+                      {formatAmount(totals.income)}
+                    </td>
+                    <td className="px-6 py-3 w-10"></td>
+                  </tr>
+                )}
+              </tfoot>
             </table>
           </div>
         </div>
